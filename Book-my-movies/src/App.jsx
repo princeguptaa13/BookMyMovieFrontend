@@ -268,11 +268,11 @@ const createShowSeats = (shows, seats) => {
     const screenSeats = seats.filter(s => s.screen_id === show.screen_id);
 
     for (const seat of screenSeats) {
-       // Ensure seat is valid
-       if (!seat || typeof seat.base_price === 'undefined') {
+        // Ensure seat is valid
+        if (!seat || typeof seat.base_price === 'undefined') {
           console.warn("Skipping invalid seat object:", seat);
           continue;
-       }
+        }
       const status = Math.random() < 0.2 ? 'Booked' : 'Available';
       showSeats.push({
         id: id++,
@@ -533,7 +533,7 @@ const Footer = ({ onNavigate, onTestConnection }) => ( // Added onTestConnection
       </div>
     </div>
     <div className="container mx-auto max-w-6xl text-center border-t border-gray-700 pt-6 mt-8">
-      <p className="text-sm">&copy; {new Date().getFullYear()} BookMyMovies. All rights reserved. (Demo)</p>
+      <p className="text-sm">&copy; {new Date().getFullYear()} - Directed by Prince Gupta ,<br></br> All rights reserved.</p>
     </div>
   </footer>
 );
@@ -547,6 +547,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [movies, setMovies] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [payments, setPayments] = useState([]); // FIX: ADDED MISSING PAYMENTS STATE
   const [theatres, setTheatres] = useState(MOCK_THEATRES); // Still mock
   const [screens, setScreens] = useState(MOCK_SCREENS); // Still mock
   const [currentShows, setCurrentShows] = useState([]); // NEW: State for fetched shows
@@ -676,7 +677,7 @@ export default function App() {
       // Use theatreId from the show object if available, otherwise fallback
       const theatreId = show.theatreId || MOCK_SCREENS.find(sc => sc.id === show.screen_id)?.theatre_id || 'unknown';
       if (!acc[theatreId]) {
-         const theatreInfo = MOCK_THEATRES.find(th => th.id === theatreId);
+          const theatreInfo = MOCK_THEATRES.find(th => th.id === theatreId);
         acc[theatreId] = {
           // Use data from show object first, then fallback to mock data
           theatreName: show.theatreName || theatreInfo?.name || 'Unknown Theatre',
@@ -710,7 +711,7 @@ export default function App() {
         seat_number: seatInfo?.seat_number || '?', // Use template info
         seat_category: seatInfo?.seat_category || 'Standard'
       };
-    });
+    }).filter(seat => seat.seat_number !== '?'); // Filter out any seats where the template info is missing (shouldn't happen with the mock setup)
 
     // Group by row for rendering
     const groupedByRow = mappedSeats.reduce((acc, seat) => {
@@ -727,11 +728,11 @@ export default function App() {
     return Object.keys(groupedByRow).sort().map(row => ({
       rowName: row,
       seats: groupedByRow[row].sort((a, b) => {
-         const numA = parseInt(a.seat_number.substring(1));
-         const numB = parseInt(b.seat_number.substring(1));
-         // Handle potential NaN if seat numbers are invalid
-         if (isNaN(numA) || isNaN(numB)) return 0;
-         return numA - numB;
+          const numA = parseInt(a.seat_number.substring(1));
+          const numB = parseInt(b.seat_number.substring(1));
+          // Handle potential NaN if seat numbers are invalid
+          if (isNaN(numA) || isNaN(numB)) return 0;
+          return numA - numB;
       })
     }));
 
@@ -740,14 +741,14 @@ export default function App() {
   // This now uses the fetched `showSeats` state
   const selectedSeatDetails = useMemo(() => {
     // Check if showSeats is valid
-     if (!Array.isArray(showSeats)) return [];
+      if (!Array.isArray(showSeats)) return [];
     return selectedSeats.map(id => {
       const ss = showSeats.find(s => s.id === id); // Find selected showSeat
       const seatInfo = seats.find(s => s.id === ss?.seat_id); // Find template
       // Ensure ss exists before spreading, provide defaults if seatInfo is missing
       return {
-          ...(ss || { id: id }), // Include the id even if ss is missing
-          ...(seatInfo || { seat_number: '?', seat_category: '?', price: 0 })
+          ...(ss || { id: id, price: 0 }), // Include the id even if ss is missing
+          ...(seatInfo || { seat_number: '?', seat_category: '?' })
       };
     }).filter(seat => seat.id); // Filter out any potential undefined entries if showSeats hasn't loaded
   }, [selectedSeats, showSeats, seats]); // Depends on fetched showSeats and mock seat templates
@@ -838,13 +839,13 @@ export default function App() {
   const handleConfirmBooking = async () => {
     // 1. Create DTO
     // Ensure selectedSeatDetails are available before mapping
-    if (selectedSeatDetails.length !== selectedSeats.length || selectedSeatDetails.some(s => !s.seat_id)) {
+    if (selectedSeatDetails.length !== selectedSeats.length || selectedSeatDetails.some(s => s.seat_number === '?')) {
         console.error("Seat details not fully loaded yet.");
         // Optionally show an error to the user
         // setBookingError("Seat information is incomplete. Please wait a moment and try again.");
         return;
     }
-     // Check if currentUser exists before accessing id
+      // Check if currentUser exists before accessing id
     if (!currentUser) {
         console.error("User not logged in.");
         navigate('LOGIN'); // Redirect to login if not logged in
@@ -854,15 +855,13 @@ export default function App() {
     const bookingRequestDto = {
       userId: currentUser.id,
       showId: selectedShowId,
-      seatIds: selectedSeatDetails.map(s => s.seat_id) // Use seat_id from template
+      // FIX: Use seat_id from the seat template, not show_seat_id (which is in selectedSeats)
+      seatIds: selectedSeatDetails.map(s => s.seat_id) // Correctly uses seat_id for the backend DTO
     };
 
-    // 2. Call API
-    console.log("Sending booking to backend:", bookingRequestDto);
-    const newBookingFromApi = await apiService.createBooking(bookingRequestDto);
-
-    // 3. Handle Fallback/Success
-    const newPaymentId = (payments.length > 0 ? Math.max(...payments.map(p => p.id)) : 0) + 1;
+    // 2. Simulate Payment Creation (Needed for mock booking object)
+    const currentMaxPaymentId = payments.length > 0 ? Math.max(...payments.map(p => p.id)) : 0;
+    const newPaymentId = currentMaxPaymentId + 1;
     const newPayment = {
         id: newPaymentId,
         amount: totalBookingPrice,
@@ -871,19 +870,24 @@ export default function App() {
         status: 'Successful',
         transaction_id: `txn_${Date.now()}`
     };
-    setPayments(prev => [...prev, newPayment]);
+    setPayments(prev => [...prev, newPayment]); // Update payments state
 
+    // 3. Call API
+    console.log("Sending booking to backend:", bookingRequestDto);
+    const newBookingFromApi = await apiService.createBooking(bookingRequestDto);
+
+    // 4. Handle Fallback/Success
     let newBooking;
     if (newBookingFromApi) {
       newBooking = { ...newBookingFromApi }; // Create a copy
       // Ensure API response includes necessary fields for confirmation page
       if (!newBooking.movieTitle || !newBooking.theatreName || !newBooking.seatNumbers) {
-           const movie = selectedMovie;
-           const show = selectedShow; // Use the selected show from state
-           // Safely find screen and theatre info (handle potential undefined)
-           const screen = MOCK_SCREENS.find(s => s.id === show?.screen_id);
-           const theatre = MOCK_THEATRES.find(t => t.id === screen?.theatre_id);
-           newBooking = {
+            const movie = selectedMovie;
+            const show = selectedShow; // Use the selected show from state
+            // Safely find screen and theatre info (handle potential undefined)
+            const screen = MOCK_SCREENS.find(s => s.id === show?.screen_id);
+            const theatre = MOCK_THEATRES.find(t => t.id === screen?.theatre_id);
+            newBooking = {
                 ...newBooking,
                 movieTitle: newBooking.movieTitle || movie?.title || 'Unknown Movie',
                 moviePoster: newBooking.moviePoster || movie?.poster_url,
@@ -891,12 +895,15 @@ export default function App() {
                 screenName: newBooking.screenName || screen?.name || 'Unknown Screen',
                 showTime: newBooking.showTime || show?.start_time,
                 seatNumbers: newBooking.seatNumbers || selectedSeatDetails.map(s => s.seat_number).join(', ') || 'N/A'
-           }
+            }
       }
+      newBooking.payment_id = newPaymentId; // Associate with the simulated payment
+      newBooking.total_amount = totalBookingPrice; // Use calculated frontend price
 
     } else {
       console.warn("Using mock booking fallback.");
-      const newBookingId = (bookings.length > 0 ? Math.max(...bookings.map(b => b.id)) : 0) + 1; // Safer ID generation
+      const currentMaxBookingId = bookings.length > 0 ? Math.max(...bookings.map(b => b.id)) : 0;
+      const newBookingId = currentMaxBookingId + 1; // Safer ID generation
       const movie = selectedMovie;
       const show = selectedShow; // Use the selected show from state
       // Safely find screen and theatre info
@@ -909,7 +916,7 @@ export default function App() {
         booking_time: new Date().toISOString(),
         status: 'Confirmed (Local)',
         total_amount: totalBookingPrice,
-        payment_id: newPaymentId,
+        payment_id: newPaymentId, // Use the new simulated payment ID
         show_id: selectedShowId,
         user_id: currentUser.id,
         movieTitle: movie?.title || 'Unknown Movie',
@@ -924,12 +931,12 @@ export default function App() {
 
     setBookings(prev => [...prev, newBooking]);
 
-    // 4. Update ShowSeats locally (ideally refetch)
+    // 5. Update ShowSeats locally (ideally refetch)
     setShowSeats(prevShowSeats => {
       // Ensure prevShowSeats is an array
       if (!Array.isArray(prevShowSeats)) return [];
       return prevShowSeats.map(ss => {
-        if (selectedSeats.includes(ss.id)) {
+        if (selectedSeats.includes(ss.id)) { // selectedSeats holds show_seat_id (ss.id)
           return { ...ss, status: 'Booked', booking_id: newBooking.id };
         }
         return ss;
@@ -937,7 +944,7 @@ export default function App() {
     });
 
 
-    // 5. Navigate & Cleanup
+    // 6. Navigate & Cleanup
     setLastBookingId(newBooking.id);
     navigate('CONFIRMATION');
     setSelectedSeats([]);
@@ -1071,8 +1078,8 @@ export default function App() {
 
         {/* Movie Info Section */}
         <div className="flex flex-col md:flex-row gap-6 md:gap-8 bg-gray-800 p-6 rounded-lg shadow-xl">
-           {/* Movie Poster */}
-           <img
+            {/* Movie Poster */}
+            <img
             src={selectedMovie.poster_url || 'https://placehold.co/400x600/1a1a1a/ffffff?text=Image+Not+Found'}
             alt={selectedMovie.title}
             className="w-full md:w-1/3 max-w-xs mx-auto rounded-lg aspect-[2/3] object-cover shadow-lg"
@@ -1109,32 +1116,32 @@ export default function App() {
 
             {/* AI Summary Display */}
             {aiSummary && (
-                 <div className="bg-gray-700 p-4 rounded-lg mb-4 text-gray-200 text-sm animate-fade-in">
-                    <h4 className="font-bold text-white mb-1">AI Summary</h4>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{aiSummary}</p>
-                 </div>
-             )}
+                <div className="bg-gray-700 p-4 rounded-lg mb-4 text-gray-200 text-sm animate-fade-in">
+                   <h4 className="font-bold text-white mb-1">AI Summary</h4>
+                   <p style={{ whiteSpace: 'pre-wrap' }}>{aiSummary}</p>
+                </div>
+              )}
             {/* AI Trivia Display */}
             {aiTrivia && (
-                 <div className="bg-gray-700 p-4 rounded-lg mb-4 text-gray-200 text-sm animate-fade-in">
-                    <h4 className="font-bold text-white mb-1">AI Insights</h4>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{aiTrivia.text}</p>
-                    {aiTrivia.sources.length > 0 && (
-                      <div className="mt-3">
-                        <h5 className="text-xs font-semibold text-gray-400 mb-1">Sources (from Google Search):</h5>
-                        <ul className="list-disc list-inside text-xs">
-                          {aiTrivia.sources.map((source, index) => (
-                            <li key={index}>
-                              <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
-                                {source.title}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                 </div>
-             )}
+                <div className="bg-gray-700 p-4 rounded-lg mb-4 text-gray-200 text-sm animate-fade-in">
+                   <h4 className="font-bold text-white mb-1">AI Insights</h4>
+                   <p style={{ whiteSpace: 'pre-wrap' }}>{aiTrivia.text}</p>
+                   {aiTrivia.sources.length > 0 && (
+                     <div className="mt-3">
+                       <h5 className="text-xs font-semibold text-gray-400 mb-1">Sources (from Google Search):</h5>
+                       <ul className="list-disc list-inside text-xs">
+                         {aiTrivia.sources.map((source, index) => (
+                           <li key={index}>
+                             <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                               {source.title}
+                             </a>
+                           </li>
+                         ))}
+                       </ul>
+                     </div>
+                   )}
+                </div>
+              )}
 
             {/* Book Tickets Button */}
             <button
@@ -1189,8 +1196,8 @@ export default function App() {
     if (!selectedShow || !selectedMovie) return renderHomePage();
 
     // Get theatre/screen info from MOCK data until API provides it on Show object
-     const screen = screens.find(s => s.id === selectedShow.screen_id);
-     const theatre = theatres.find(t => t.id === screen?.theatre_id);
+      const screen = screens.find(s => s.id === selectedShow.screen_id);
+      const theatre = theatres.find(t => t.id === screen?.theatre_id);
 
 
     return (
@@ -1219,7 +1226,7 @@ export default function App() {
               <SpinnerIcon /> <span className="text-xl ml-3">Loading Seats...</span>
             </div>
           ) : seatMapForSelectedShow.length === 0 ? (
-             <p className="text-gray-400 text-lg text-center">Seat layout not available.</p>
+              <p className="text-gray-400 text-lg text-center">Seat layout not available.</p>
           ) : (
             <div className="flex flex-col items-center gap-2">
               {/* Screen Display */}
@@ -1259,7 +1266,7 @@ export default function App() {
 
               {/* Legend */}
               <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-8 text-sm text-gray-300">
-                   <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
                         <div className="w-5 h-5 rounded bg-gray-300"></div> Standard (₹150)
                     </div>
                     <div className="flex items-center gap-2">
@@ -1279,7 +1286,7 @@ export default function App() {
         {/* Payment Bar */}
         {selectedSeats.length > 0 && (
           <div className="sticky bottom-0 bg-gray-900 p-4 mt-6 rounded-t-lg shadow-2xl flex justify-between items-center">
-             <div>
+              <div>
               <p className="text-lg text-white font-semibold">Total: ₹{totalBookingPrice}</p>
               <p className="text-sm text-gray-300">
                 {selectedSeats.length} Ticket(s): {selectedSeatDetails.map(s => s.seat_number).join(', ')}
@@ -1295,7 +1302,7 @@ export default function App() {
         )}
       </div>
     );
-   };
+    };
 
   const renderBookingSummaryPage = () => {
     if (!selectedShow || !selectedMovie || selectedSeats.length === 0) return renderHomePage();
@@ -1358,10 +1365,10 @@ export default function App() {
           </div>
 
           <div className="mb-8">
-             <h3 className="text-xl font-semibold mb-3">Contact Details</h3>
-             <p className="text-gray-200">{currentUser?.name}</p>
-             <p className="text-gray-300">{currentUser?.email}</p>
-             <p className="text-gray-300">{currentUser?.phone_no}</p>
+              <h3 className="text-xl font-semibold mb-3">Contact Details</h3>
+              <p className="text-gray-200">{currentUser?.name}</p>
+              <p className="text-gray-300">{currentUser?.email}</p>
+              <p className="text-gray-300">{currentUser?.phone_no}</p>
           </div>
 
           <button
@@ -1388,8 +1395,8 @@ export default function App() {
               <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
           </div>
-          <h1 className="text-3xl font-bold mb-4">Booking Confirmed!</h1>
-          <p className="text-lg text-gray-300 mb-2">Thank you, {currentUser?.name}!</p>
+          <h1 className="text-3xl font-bold mb-4">Booking Confirmed Cutie!</h1>
+          <p className="text-lg text-gray-300 mb-2">Now, You get a Chance to watch a movie with Mr. Prince!</p>
           <p className="text-gray-400 mb-6">Your booking is successful. A confirmation has been (simulated) sent to {currentUser?.email}.</p>
 
           <div className="text-left bg-gray-700 p-6 rounded-lg mb-8">
@@ -1435,10 +1442,10 @@ export default function App() {
         <h1 className="text-3xl font-bold text-white mb-8">My Bookings</h1>
 
         {bookingsLoading ? (
-           <div className="flex justify-center items-center h-64">
-            <SpinnerIcon /> <span className="text-xl ml-3">Loading Bookings...</span>
-          </div>
-        ) : userBookings.length === 0 ? (
+            <div className="flex justify-center items-center h-64">
+             <SpinnerIcon /> <span className="text-xl ml-3">Loading Bookings...</span>
+           </div>
+         ) : userBookings.length === 0 ? (
           <div className="text-center bg-gray-800 p-12 rounded-lg shadow-xl">
             <h2 className="text-2xl font-semibold text-white mb-4">No bookings yet!</h2>
             <p className="text-gray-400 mb-6">Looks like you haven't booked any movies. Let's change that!</p>
@@ -1562,7 +1569,7 @@ export default function App() {
           }`}>
             {testStatus}
           </div>
-         )}
+          )}
         <main className="pb-20 flex-grow">
           {renderCurrentPage()}
         </main>
@@ -1571,4 +1578,3 @@ export default function App() {
     </>
   );
 }
-
